@@ -53,12 +53,11 @@ def format_latest_table(df: pd.DataFrame) -> pd.DataFrame:
         "rank",
         "Ticker",
         "decision_date",
-        "current_price_date",
         "start_price",
         "end_price",
+        "momentum",
         "current_price",
         "month_to_date_return",
-        "momentum",
     ]
     return out[[col for col in preferred_cols if col in out.columns]]
 
@@ -75,11 +74,22 @@ def format_monthly_table(df: pd.DataFrame) -> pd.DataFrame:
         "ranking_window",
         "rank",
         "Ticker",
+    ] + [f"momentum_{w}m" for w in MOMENTUM_WINDOWS] + [
         "hold_1m_return",
         "hold_2m_return",
         "hold_3m_return",
-    ] + [f"momentum_{w}m" for w in MOMENTUM_WINDOWS]
+    ]
     return out[[col for col in preferred_cols if col in out.columns]]
+
+
+def latest_current_price_date() -> str | None:
+    for path in LATEST_RANKING_FILES.values():
+        if not path.exists():
+            continue
+        df = pd.read_csv(path)
+        if "current_price_date" in df.columns and not df["current_price_date"].dropna().empty:
+            return str(df["current_price_date"].dropna().iloc[0])
+    return None
 
 
 def build_latest_sections() -> str:
@@ -114,8 +124,16 @@ def build_monthly_sections() -> str:
     if df.empty:
         return "_No monthly cross-window momentum data available._"
 
-    # The CSV is already written latest month first, but this keeps the README robust.
+    # The newest decision month is the current/incomplete holding month, so skip it.
+    # Example: when the latest decision month is 2026-06, the README starts from 2026-05.
     df["_decision_date_sort"] = pd.to_datetime(df["decision_date"], errors="coerce")
+    newest_decision_date = df["_decision_date_sort"].max()
+    if pd.notna(newest_decision_date):
+        df = df[df["_decision_date_sort"] < newest_decision_date]
+
+    if df.empty:
+        return "_No monthly cross-window momentum data available after excluding the newest incomplete month._"
+
     df = df.sort_values(["_decision_date_sort", "ranking_window", "rank"], ascending=[False, True, True])
 
     parts: list[str] = []
@@ -145,7 +163,7 @@ def build_monthly_section() -> str:
     return f"""
 ## Monthly Top 10 Cross-Window Momentum Tables
 
-These tables are split by month, starting from the latest available month-start decision date and going backward to January 2016. For each month, the 4M, 5M, and 6M ranking windows are shown as separate Top 10 tables. For each selected stock, the tables report the stock's forward holding returns over the next 1M, 2M, and 3M, plus its 3M, 4M, 5M, 6M, and 7M momentum values at the same decision date. Blank hold-return cells mean the future month-start price is not available yet.
+These tables are split by month, starting from the latest completed forward-hold month and going backward to January 2016. For each month, the 4M, 5M, and 6M ranking windows are shown as separate Top 10 tables. For each selected stock, the tables report the stock's 3M, 4M, 5M, 6M, and 7M momentum values at the same decision date, plus its forward holding returns over the next 1M, 2M, and 3M. Blank hold-return cells mean the future month-start price is not available yet.
 
 {table_sections}
 
@@ -155,8 +173,15 @@ Saved file: `{MONTHLY_TOP3_CROSS_WINDOW_FILE}`
 
 def main() -> None:
     updated_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    current_price_date = latest_current_price_date()
     latest_sections = build_latest_sections()
     monthly_section = build_monthly_section()
+
+    current_price_note = (
+        f"Latest available price date used for `current_price` and `month_to_date_return`: **{current_price_date}**."
+        if current_price_date
+        else "Latest available price date used for `current_price` and `month_to_date_return`: unavailable until latest ranking files are generated."
+    )
 
     readme = f"""# Nasdaq-100 Point-in-Time Momentum Ranking
 
@@ -165,6 +190,8 @@ This repository builds point-in-time Nasdaq-100 momentum ranking tables. It no l
 Author: Haoyang Luo
 
 Last updated: **{updated_at}**
+
+{current_price_note}
 
 ---
 
@@ -210,7 +237,7 @@ python run_all.py
 | `output/latest_nasdaq100_5m_momentum_top10.csv` | Latest 5M momentum Top 10 ranking, including month-to-date return |
 | `output/latest_nasdaq100_6m_momentum_top10.csv` | Latest 6M momentum Top 10 ranking, including month-to-date return |
 | `output/latest_nasdaq100_7m_momentum_top10.csv` | Latest 7M momentum Top 10 ranking, including month-to-date return |
-| `output/monthly_top10_cross_window_momentum.csv` | Monthly tables from latest month back to 2016-01: Top 10 by 4M/5M/6M, forward 1M/2M/3M holding returns, and 3M-7M momentum values |
+| `output/monthly_top10_cross_window_momentum.csv` | Monthly tables from latest completed forward-hold month back to 2016-01: Top 10 by 4M/5M/6M, 3M-7M momentum values, and forward 1M/2M/3M holding returns |
 
 ---
 
