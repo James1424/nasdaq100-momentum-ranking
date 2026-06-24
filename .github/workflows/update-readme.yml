@@ -1,0 +1,32 @@
+name: Update momentum rankings
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 8 * * 0"
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run update
+        run: python run_all.py
+
+      - name: Commit updated data and README
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "Update point-in-time Nasdaq-100 momentum rankings"
