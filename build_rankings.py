@@ -17,6 +17,9 @@ from config import (
 )
 
 
+HOLD_WINDOWS = [1, 2, 3]
+
+
 def clean_ticker(value) -> str | None:
     if value is None or pd.isna(value):
         return None
@@ -91,6 +94,12 @@ def latest_completed_decision_date(month_start_prices: pd.DataFrame) -> pd.Times
     return month_start_prices.index[-1]
 
 
+def latest_available_price_date(daily_prices: pd.DataFrame) -> pd.Timestamp:
+    if len(daily_prices) == 0:
+        raise ValueError("No daily prices available.")
+    return daily_prices.index[-1]
+
+
 def valid_universe_for_date(
     decision_date: pd.Timestamp,
     month_start_prices: pd.DataFrame,
@@ -103,14 +112,43 @@ def valid_universe_for_date(
     return [t for t in universe if pd.notna(price_row.get(t, pd.NA))]
 
 
+def get_forward_hold_return(
+    month_start_prices: pd.DataFrame,
+    decision_date: pd.Timestamp,
+    ticker: str,
+    months: int,
+):
+    """Return from decision-date month-start price to the month-start price N months later."""
+    if ticker not in month_start_prices.columns:
+        return pd.NA
+
+    try:
+        start_pos = month_start_prices.index.get_loc(decision_date)
+    except KeyError:
+        return pd.NA
+
+    end_pos = start_pos + months
+    if end_pos >= len(month_start_prices.index):
+        return pd.NA
+
+    start_price = month_start_prices.iloc[start_pos].get(ticker, pd.NA)
+    end_price = month_start_prices.iloc[end_pos].get(ticker, pd.NA)
+    if pd.isna(start_price) or pd.isna(end_price) or float(start_price) == 0:
+        return pd.NA
+
+    return float(end_price) / float(start_price) - 1
+
+
 def build_latest_ranking(
     month_start_prices: pd.DataFrame,
+    daily_prices: pd.DataFrame,
     momentum_by_window: dict[int, pd.DataFrame],
     current_tickers: set[str],
     changes: pd.DataFrame,
     window: int,
 ) -> pd.DataFrame:
     decision_date = latest_completed_decision_date(month_start_prices)
+    current_date = latest_available_price_date(daily_prices)
     start_pos = month_start_prices.index.get_loc(decision_date) - window
     if start_pos < 0:
         raise ValueError(f"Not enough month-start history for {window}M momentum.")
@@ -122,13 +160,23 @@ def build_latest_ranking(
 
     rows = []
     for rank, (ticker, score) in enumerate(top.items(), start=1):
+        decision_price = month_start_prices.loc[decision_date, ticker]
+        current_price = daily_prices.loc[current_date].get(ticker, pd.NA) if ticker in daily_prices.columns else pd.NA
+        month_to_date_return = (
+            float(current_price) / float(decision_price) - 1
+            if pd.notna(current_price) and pd.notna(decision_price) and float(decision_price) != 0
+            else pd.NA
+        )
         rows.append(
             {
                 "rank": rank,
                 "Ticker": ticker,
                 "decision_date": decision_date.strftime("%Y-%m-%d"),
+                "current_price_date": current_date.strftime("%Y-%m-%d"),
                 "start_price": float(month_start_prices.loc[start_date, ticker]),
-                "end_price": float(month_start_prices.loc[decision_date, ticker]),
+                "end_price": float(decision_price),
+                "current_price": float(current_price) if pd.notna(current_price) else pd.NA,
+                "month_to_date_return": month_to_date_return,
                 "momentum": float(score),
             }
         )
@@ -163,6 +211,13 @@ def build_monthly_cross_window_table(
                     "rank": rank,
                     "Ticker": ticker,
                 }
+                for hold_month in HOLD_WINDOWS:
+                    row[f"hold_{hold_month}m_return"] = get_forward_hold_return(
+                        month_start_prices=month_start_prices,
+                        decision_date=decision_date,
+                        ticker=ticker,
+                        months=hold_month,
+                    )
                 for w in MOMENTUM_WINDOWS:
                     value = momentum_by_window[w].loc[decision_date].get(ticker, pd.NA)
                     row[f"momentum_{w}m"] = value if pd.notna(value) else pd.NA
@@ -187,6 +242,7 @@ def main() -> None:
     for window in MOMENTUM_WINDOWS:
         latest = build_latest_ranking(
             month_start_prices=month_start_prices,
+            daily_prices=daily_prices,
             momentum_by_window=momentum_by_window,
             current_tickers=current_tickers,
             changes=changes,
