@@ -9,6 +9,7 @@ from config import (
     MOMENTUM_WINDOWS,
     MONTHLY_TOP3_CROSS_WINDOW_FILE,
     README_FILE,
+    RANKING_WINDOWS_FOR_MONTHLY_TABLE,
 )
 
 
@@ -85,16 +86,23 @@ def build_monthly_sections() -> str:
     df = df.sort_values(["_decision_date_sort", "ranking_window", "rank"], ascending=[False, True, True])
 
     parts: list[str] = []
-    for decision_month, sub in df.groupby("decision_month", sort=False):
-        sub = sub.drop(columns=["_decision_date_sort"])
-        sub = format_monthly_table(sub)
-        parts.append(
-            f"""
-### {decision_month}
+    for decision_month, month_df in df.groupby("decision_month", sort=False):
+        parts.append(f"### {decision_month}")
+
+        for ranking_window in RANKING_WINDOWS_FOR_MONTHLY_TABLE:
+            sub = month_df[month_df["ranking_window"] == ranking_window].copy()
+            if sub.empty:
+                continue
+
+            sub = sub.drop(columns=["_decision_date_sort"])
+            sub = format_monthly_table(sub)
+            parts.append(
+                f"""
+#### {ranking_window}M Momentum Top 10
 
 {to_markdown(sub)}
 """.strip()
-        )
+            )
 
     return "\n\n".join(parts)
 
@@ -102,9 +110,9 @@ def build_monthly_sections() -> str:
 def build_monthly_section() -> str:
     table_sections = build_monthly_sections()
     return f"""
-## Monthly Top 3 Cross-Window Momentum Tables
+## Monthly Top 10 Cross-Window Momentum Tables
 
-These tables are split by month, starting from the latest available month-start decision date and going backward to January 2016. For each month, the table first selects rank 1 / 2 / 3 stocks using the 4M, 5M, and 6M momentum strategies. For each selected stock, it then reports that stock's 3M, 4M, 5M, 6M, and 7M momentum values at the same decision date.
+These tables are split by month, starting from the latest available month-start decision date and going backward to January 2016. For each month, the 4M, 5M, and 6M ranking windows are shown as separate Top 10 tables. For each selected stock, the tables report that stock's 3M, 4M, 5M, 6M, and 7M momentum values at the same decision date.
 
 {table_sections}
 
@@ -167,7 +175,7 @@ python run_all.py
 | `output/latest_nasdaq100_5m_momentum_top10.csv` | Latest 5M momentum Top 10 ranking |
 | `output/latest_nasdaq100_6m_momentum_top10.csv` | Latest 6M momentum Top 10 ranking |
 | `output/latest_nasdaq100_7m_momentum_top10.csv` | Latest 7M momentum Top 10 ranking |
-| `output/monthly_top3_cross_window_momentum.csv` | Monthly tables from latest month back to 2016-01: Top 3 by 4M/5M/6M and their 3M-7M momentum values |
+| `output/monthly_top10_cross_window_momentum.csv` | Monthly tables from latest month back to 2016-01: Top 10 by 4M/5M/6M and their 3M-7M momentum values |
 
 ---
 
