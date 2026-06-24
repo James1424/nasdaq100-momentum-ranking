@@ -141,7 +141,7 @@ def build_monthly_cross_window_table(
     current_tickers: set[str],
     changes: pd.DataFrame,
 ) -> pd.DataFrame:
-    """Build monthly Top-3 cross-window momentum records from latest month back to 2016-01."""
+    """Build monthly Top-10 cross-window momentum records from latest month back to 2016-01."""
     backtest_start = pd.Timestamp(BACKTEST_START)
     dates = [d for d in month_start_prices.index if d >= backtest_start]
     dates = sorted(dates, reverse=True)
