@@ -13,6 +13,15 @@ from config import (
 )
 
 
+PCT_COLUMNS = {
+    "momentum",
+    "month_to_date_return",
+    "hold_1m_return",
+    "hold_2m_return",
+    "hold_3m_return",
+}
+
+
 def fmt_pct(x) -> str:
     if pd.isna(x):
         return ""
@@ -33,20 +42,44 @@ def to_markdown(df: pd.DataFrame) -> str:
 
 def format_latest_table(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
-    for col in ["start_price", "end_price"]:
+    for col in ["start_price", "end_price", "current_price"]:
         if col in out.columns:
             out[col] = out[col].map(fmt_price)
-    if "momentum" in out.columns:
-        out["momentum"] = out["momentum"].map(fmt_pct)
-    return out[["rank", "Ticker", "decision_date", "start_price", "end_price", "momentum"]]
+    for col in ["momentum", "month_to_date_return"]:
+        if col in out.columns:
+            out[col] = out[col].map(fmt_pct)
+
+    preferred_cols = [
+        "rank",
+        "Ticker",
+        "decision_date",
+        "current_price_date",
+        "start_price",
+        "end_price",
+        "current_price",
+        "month_to_date_return",
+        "momentum",
+    ]
+    return out[[col for col in preferred_cols if col in out.columns]]
 
 
 def format_monthly_table(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
     for col in out.columns:
-        if col.startswith("momentum_"):
+        if col.startswith("momentum_") or col in PCT_COLUMNS or col.startswith("hold_"):
             out[col] = out[col].map(fmt_pct)
-    return out
+
+    preferred_cols = [
+        "decision_month",
+        "decision_date",
+        "ranking_window",
+        "rank",
+        "Ticker",
+        "hold_1m_return",
+        "hold_2m_return",
+        "hold_3m_return",
+    ] + [f"momentum_{w}m" for w in MOMENTUM_WINDOWS]
+    return out[[col for col in preferred_cols if col in out.columns]]
 
 
 def build_latest_sections() -> str:
@@ -63,7 +96,7 @@ def build_latest_sections() -> str:
             f"""
 ## Latest Nasdaq-100 {window}-Month Momentum Top 10 Ranking
 
-This table ranks the point-in-time Nasdaq-100 universe as of the latest available month-start decision date. Momentum is calculated from the month-start price {window} months earlier to the decision-date month-start price.
+This table ranks the point-in-time Nasdaq-100 universe as of the latest available month-start decision date. Momentum is calculated from the month-start price {window} months earlier to the decision-date month-start price. `month_to_date_return` is the return from the decision-date month-start price to the latest available daily adjusted close price.
 
 {table_md}
 
@@ -112,7 +145,7 @@ def build_monthly_section() -> str:
     return f"""
 ## Monthly Top 10 Cross-Window Momentum Tables
 
-These tables are split by month, starting from the latest available month-start decision date and going backward to January 2016. For each month, the 4M, 5M, and 6M ranking windows are shown as separate Top 10 tables. For each selected stock, the tables report that stock's 3M, 4M, 5M, 6M, and 7M momentum values at the same decision date.
+These tables are split by month, starting from the latest available month-start decision date and going backward to January 2016. For each month, the 4M, 5M, and 6M ranking windows are shown as separate Top 10 tables. For each selected stock, the tables report the stock's forward holding returns over the next 1M, 2M, and 3M, plus its 3M, 4M, 5M, 6M, and 7M momentum values at the same decision date. Blank hold-return cells mean the future month-start price is not available yet.
 
 {table_sections}
 
@@ -141,6 +174,8 @@ Last updated: **{updated_at}**
 - Decision date: the first available trading day of each month.
 - Momentum windows: 3, 4, 5, 6, and 7 months.
 - Momentum definition: `end_price / start_price - 1` using month-start adjusted close prices.
+- Latest ranking month-to-date return: latest available daily adjusted close price divided by decision-date month-start adjusted close price minus 1.
+- Forward hold returns: `hold_1m_return`, `hold_2m_return`, and `hold_3m_return` measure returns from the decision-date month-start price to the month-start price 1, 2, and 3 months later.
 - Ranking: each table ranks only stocks that were in the Nasdaq-100 universe at that decision date and have valid prices.
 
 ---
@@ -170,12 +205,12 @@ python run_all.py
 | `data/nasdaq100_component_changes.csv` | Nasdaq-100 added/removed history parsed from Wikipedia |
 | `data/nasdaq100_all_historical_tickers.csv` | Current plus historical tickers used for price download |
 | `data/nasdaq100_prices.csv` | Adjusted close price database |
-| `output/latest_nasdaq100_3m_momentum_top10.csv` | Latest 3M momentum Top 10 ranking |
-| `output/latest_nasdaq100_4m_momentum_top10.csv` | Latest 4M momentum Top 10 ranking |
-| `output/latest_nasdaq100_5m_momentum_top10.csv` | Latest 5M momentum Top 10 ranking |
-| `output/latest_nasdaq100_6m_momentum_top10.csv` | Latest 6M momentum Top 10 ranking |
-| `output/latest_nasdaq100_7m_momentum_top10.csv` | Latest 7M momentum Top 10 ranking |
-| `output/monthly_top10_cross_window_momentum.csv` | Monthly tables from latest month back to 2016-01: Top 10 by 4M/5M/6M and their 3M-7M momentum values |
+| `output/latest_nasdaq100_3m_momentum_top10.csv` | Latest 3M momentum Top 10 ranking, including month-to-date return |
+| `output/latest_nasdaq100_4m_momentum_top10.csv` | Latest 4M momentum Top 10 ranking, including month-to-date return |
+| `output/latest_nasdaq100_5m_momentum_top10.csv` | Latest 5M momentum Top 10 ranking, including month-to-date return |
+| `output/latest_nasdaq100_6m_momentum_top10.csv` | Latest 6M momentum Top 10 ranking, including month-to-date return |
+| `output/latest_nasdaq100_7m_momentum_top10.csv` | Latest 7M momentum Top 10 ranking, including month-to-date return |
+| `output/monthly_top10_cross_window_momentum.csv` | Monthly tables from latest month back to 2016-01: Top 10 by 4M/5M/6M, forward 1M/2M/3M holding returns, and 3M-7M momentum values |
 
 ---
 
